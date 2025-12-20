@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QMessageBox, QFrame, QFormLayout, QComboBox, QStackedWidget, QDialog
 )
 from PyQt6.QtWidgets import QDateEdit 
+from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QDate
 from PyQt6.QtCore import Qt
 import database
@@ -365,6 +366,192 @@ class ModuloMovimientos(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al guardar: {e}")
 
+# --- MODULO DE INVENTARIO ---
+class ModuloInventario(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.limite = 10
+        self.pagina_actual = 0
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # Título
+        h1 = QLabel("INVENTARIO")
+        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: #34495e;")
+        h1.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(h1)
+
+        h2 = QLabel("Control de Existencias")
+        h2.setStyleSheet("font-size: 18px; color: #7f8c8d; margin-bottom: 10px;")
+        h2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(h2)
+
+        # Filtros: Buscador (sin proveedor) y Select de Stock (con Normal)
+        filtros_layout = QHBoxLayout()
+        
+        self.input_buscar = QLineEdit()
+        self.input_buscar.setPlaceholderText("🔍 Buscar por Código, Producto o Categoría...")
+        self.input_buscar.textChanged.connect(self.cargar_datos)
+        
+        self.combo_filtro_stock = QComboBox()
+        # Se añade "Normal" a las opciones
+        self.combo_filtro_stock.addItems(["Todos los niveles", "Normal", "Stock Bajo", "Sin Stock"])
+        self.combo_filtro_stock.currentTextChanged.connect(self.cargar_datos)
+        
+        filtros_layout.addWidget(self.input_buscar, 4)
+        filtros_layout.addWidget(self.combo_filtro_stock, 1)
+        layout.addLayout(filtros_layout)
+
+        # Tabla
+        self.tabla = QTableWidget()
+        self.tabla.setColumnCount(7)
+        self.tabla.setHorizontalHeaderLabels([
+            "Código", "Producto", "Categoría", "Stock Actual", "Stock Mínimo", "Estado", "Acciones"
+        ])
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla.verticalHeader().hide()
+        layout.addWidget(self.tabla)
+
+        # Footer: Restablecer y Paginación
+        footer_layout = QHBoxLayout()
+        
+        self.btn_restablecer = QPushButton("🗑️ Restablecer Todo")
+        self.btn_restablecer.setStyleSheet("background-color: #7f8c8d; color: white; padding: 8px 15px; font-weight: bold;")
+        self.btn_restablecer.clicked.connect(self.restablecer_tabla)
+        
+        self.btn_atras = QPushButton("Anterior")
+        self.btn_siguiente = QPushButton("Siguiente")
+        self.lbl_pagina = QLabel("Página 1")
+        
+        self.btn_atras.clicked.connect(self.pagina_anterior)
+        self.btn_siguiente.clicked.connect(self.pagina_siguiente)
+
+        footer_layout.addWidget(self.btn_restablecer)
+        footer_layout.addStretch()
+        footer_layout.addWidget(self.btn_atras)
+        footer_layout.addWidget(self.lbl_pagina)
+        footer_layout.addWidget(self.btn_siguiente)
+        footer_layout.addStretch()
+        layout.addLayout(footer_layout)
+
+    def cargar_datos(self):
+        busqueda = self.input_buscar.text()
+        filtro_stock = self.combo_filtro_stock.currentText()
+        offset = self.pagina_actual * self.limite
+        
+        conn = database.crear_conexion()
+        cursor = conn.cursor()
+        
+        # Query: Se quitó la búsqueda por proveedor
+        query = """
+            SELECT 
+                p.codigo, 
+                p.nombre, 
+                c.nombre as categoria,
+                p.id,
+                COALESCE(SUM(CASE WHEN m.tipo = 'Compra' THEN m.cantidad ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN m.tipo = 'Venta' THEN m.cantidad ELSE 0 END), 0) as stock_actual
+            FROM productos p
+            LEFT JOIN categorias c ON p.id_categoria = c.id
+            LEFT JOIN movimientos m ON p.id = m.id_producto
+            WHERE (p.codigo LIKE ? OR p.nombre LIKE ? OR categoria LIKE ?)
+            GROUP BY p.id
+        """
+        
+        cursor.execute(query, (f'%{busqueda}%', f'%{busqueda}%', f'%{busqueda}%'))
+        todos = cursor.fetchall()
+        
+        # Lógica de filtrado por niveles de stock
+        filtrados = []
+        for p in todos:
+            stock = p[4]
+            if filtro_stock == "Normal" and not (stock > 10): continue
+            if filtro_stock == "Stock Bajo" and not (0 < stock <= 10): continue
+            if filtro_stock == "Sin Stock" and stock != 0: continue
+            filtrados.append(p)
+
+        self.tabla.setRowCount(0)
+        
+        for fila in filtrados[offset : offset + self.limite]:
+            idx = self.tabla.rowCount()
+            self.tabla.insertRow(idx)
+            
+            stock_actual = fila[4]
+            stock_minimo = 10
+            
+            # Definir estado y colores
+            if stock_actual > 10:
+                estado, color, texto_color = "Normal", "#27ae60", "white" # Verde
+            elif 0 < stock_actual <= 10:
+                estado, color, texto_color = "Stock Bajo", "#f1c40f", "black" # Amarillo
+            else:
+                estado, color, texto_color = "Sin Stock", "#e74c3c", "white" # Rojo
+
+            items = [
+                QTableWidgetItem(str(fila[0])),
+                QTableWidgetItem(str(fila[1])),
+                QTableWidgetItem(str(fila[2])),
+                QTableWidgetItem(str(stock_actual)),
+                QTableWidgetItem(str(stock_minimo)),
+                QTableWidgetItem(estado)
+            ]
+
+            for col, item in enumerate(items):
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setBackground(QColor(color))
+                item.setForeground(QColor(texto_color))
+                self.tabla.setItem(idx, col, item)
+
+            # Botones
+            btns_widget = QWidget()
+            btns_layout = QHBoxLayout(btns_widget)
+            btns_layout.setContentsMargins(0,0,0,0)
+            
+            btn_ver = QPushButton("Ver")
+            btn_del = QPushButton("Eliminar")
+            btn_del.setStyleSheet("background-color: #c0392b; color: white;")
+            btn_del.clicked.connect(lambda _, id_p=fila[3]: self.eliminar_producto(id_p))
+            
+            btns_layout.addWidget(btn_ver)
+            btns_layout.addWidget(btn_del)
+            self.tabla.setCellWidget(idx, 6, btns_widget)
+
+        conn.close()
+        self.lbl_pagina.setText(f"Página {self.pagina_actual + 1}")
+
+    def eliminar_producto(self, id_p):
+        rta = QMessageBox.question(self, "Eliminar", "¿Eliminar producto y sus movimientos?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if rta == QMessageBox.StandardButton.Yes:
+            conn = database.crear_conexion()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM movimientos WHERE id_producto = ?", (id_p,))
+            cursor.execute("DELETE FROM productos WHERE id = ?", (id_p,))
+            conn.commit()
+            conn.close()
+            self.cargar_datos()
+
+    def restablecer_tabla(self):
+        rta = QMessageBox.warning(self, "¡CUIDADO!", "¿Borrar absolutamente TODOS los datos?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if rta == QMessageBox.StandardButton.Yes:
+            conn = database.crear_conexion()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM movimientos")
+            cursor.execute("DELETE FROM productos")
+            conn.commit()
+            conn.close()
+            self.cargar_datos()
+
+    def pagina_siguiente(self):
+        self.pagina_actual += 1
+        self.cargar_datos()
+
+    def pagina_anterior(self):
+        if self.pagina_actual > 0:
+            self.pagina_actual -= 1
+            self.cargar_datos()
+
 # --- VENTANA PRINCIPAL ---
 class VentanaPrincipal(QMainWindow):
     def __init__(self):
@@ -405,6 +592,7 @@ class VentanaPrincipal(QMainWindow):
         self.btn_cat = QPushButton("  📁  Categorías")
         self.btn_prod = QPushButton("  📦  Productos")
         self.btn_mov = QPushButton("  🔄  Movimientos")
+        self.btn_inv = QPushButton("  📊  Inventario")
         
         # Estilo de botones: Más compactos y con efecto hover
         estilo_botones = """
@@ -427,11 +615,13 @@ class VentanaPrincipal(QMainWindow):
         self.btn_cat.setStyleSheet(estilo_botones)
         self.btn_prod.setStyleSheet(estilo_botones)
         self.btn_mov.setStyleSheet(estilo_botones)
+        self.btn_inv.setStyleSheet(estilo_botones)
 
         # Añadir al layout
         layout_sidebar.addWidget(self.btn_cat)
         layout_sidebar.addWidget(self.btn_prod)
         layout_sidebar.addWidget(self.btn_mov)
+        layout_sidebar.addWidget(self.btn_inv)
         
         # Espacio flexible al final para empujar todo hacia arriba
         layout_sidebar.addStretch()
@@ -441,15 +631,18 @@ class VentanaPrincipal(QMainWindow):
         self.mod_cat = ModuloCategorias()
         self.mod_prod = ModuloProductos()
         self.mod_mov = ModuloMovimientos()
+        self.mod_inv = ModuloInventario()
 
         self.paginas.addWidget(self.mod_cat)
         self.paginas.addWidget(self.mod_prod)
         self.paginas.addWidget(self.mod_mov)    
+        self.paginas.addWidget(self.mod_inv)
 
         # Conexiones de botones
         self.btn_cat.clicked.connect(lambda: self.paginas.setCurrentIndex(0))
         self.btn_prod.clicked.connect(self.ir_a_productos)
         self.btn_mov.clicked.connect(self.ir_a_movimientos)
+        self.btn_inv.clicked.connect(self.ir_a_inventario)
 
         # Unir todo
         layout_principal.addWidget(self.sidebar)
@@ -462,6 +655,10 @@ class VentanaPrincipal(QMainWindow):
     def ir_a_movimientos(self):
         self.mod_mov.actualizar_productos_combobox() 
         self.paginas.setCurrentIndex(2)
+
+    def ir_a_inventario(self):
+        self.mod_inv.cargar_datos() # Refresca el stock cada vez que entras
+        self.paginas.setCurrentIndex(3)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
