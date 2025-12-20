@@ -24,5 +24,18 @@ def inicializar_db():
             FOREIGN KEY (id_categoria) REFERENCES categorias (id)
         )
     """)
+    # Movimientos
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS movimientos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_producto INTEGER,
+            fecha TEXT,
+            tipo TEXT, -- Compra o Venta
+            precio REAL,
+            cantidad INTEGER,
+            observaciones TEXT,
+            FOREIGN KEY (id_producto) REFERENCES productos (id)
+        )
+    """)
     conexion.commit()
     conexion.close()

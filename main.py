@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
     QHeaderView, QMessageBox, QFrame, QFormLayout, QComboBox, QStackedWidget, QDialog
 )
+from PyQt6.QtWidgets import QDateEdit 
+from PyQt6.QtCore import QDate
 from PyQt6.QtCore import Qt
 import database
 
@@ -215,7 +217,7 @@ class ModuloProductos(QWidget):
         form_layout.addRow("Categoría:", self.combo_categoria)
         form_layout.addRow("Proveedor:", self.input_proveedor)
         
-        self.btn_registrar = QPushButton("Registrar")
+        self.btn_registrar = QPushButton("Registrar Producto")
         self.btn_registrar.setStyleSheet("background-color: #20c997; color: black; padding: 10px;")
         self.btn_registrar.clicked.connect(self.registrar_producto)
 
@@ -259,6 +261,110 @@ class ModuloProductos(QWidget):
         else:
             QMessageBox.warning(self, "Error", "Completa todos los campos")
 
+
+# --- MÓDULO DE MOVIMIENTOS ---
+class ModuloMovimientos(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # Títulos
+        h1 = QLabel("MOVIMIENTOS")
+        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: #34495e;")
+        h1.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        h2 = QLabel("Registro de Movimientos")
+        h2.setStyleSheet("font-size: 18px; color: #7f8c8d; margin-bottom: 20px;")
+        h2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Formulario
+        form_frame = QFrame()
+        form_frame.setMaximumWidth(550)
+        form_layout = QFormLayout(form_frame)
+        form_layout.setSpacing(15)
+
+        self.combo_producto = QComboBox()
+        self.input_fecha = QDateEdit()
+        self.input_fecha.setCalendarPopup(True) # Para que salga un calendario al hacer clic
+        self.input_fecha.setDate(QDate.currentDate()) # Fecha de hoy por defecto
+        
+        self.combo_tipo = QComboBox()
+        self.combo_tipo.addItems(["Compra", "Venta"])
+        
+        self.input_precio = QLineEdit()
+        self.input_precio.setPlaceholderText("0.00")
+        
+        self.input_cantidad = QLineEdit()
+        self.input_cantidad.setPlaceholderText("Solo números enteros")
+        
+        self.input_obs = QLineEdit()
+        self.input_obs.setPlaceholderText("Opcional...")
+        
+        form_layout.addRow("Seleccionar Producto:", self.combo_producto)
+        form_layout.addRow("Fecha:", self.input_fecha)
+        form_layout.addRow("Tipo de Movimiento:", self.combo_tipo)
+        form_layout.addRow("Precio:", self.input_precio)
+        form_layout.addRow("Cantidad:", self.input_cantidad)
+        form_layout.addRow("Observaciones:", self.input_obs)
+        
+        self.btn_registrar = QPushButton("Registrar Movimiento")
+        self.btn_registrar.setStyleSheet("background-color: #27ae60; color: white; padding: 12px; border-radius: 5px;")
+        self.btn_registrar.clicked.connect(self.registrar_movimiento)
+
+        center_layout = QHBoxLayout()
+        center_layout.addStretch()
+        center_layout.addWidget(form_frame)
+        center_layout.addStretch()
+
+        layout.addWidget(h1)
+        layout.addWidget(h2)
+        layout.addLayout(center_layout)
+        layout.addWidget(self.btn_registrar, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch()
+
+    def actualizar_productos_combobox(self):
+        self.combo_producto.clear()
+        conn = database.crear_conexion()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nombre FROM productos")
+        for id_p, nom in cursor.fetchall():
+            self.combo_producto.addItem(nom, id_p)
+        conn.close()
+
+    def registrar_movimiento(self):
+        id_prod = self.combo_producto.currentData()
+        fecha = self.input_fecha.date().toString("yyyy-MM-dd")
+        tipo = self.combo_tipo.currentText()
+        precio = self.input_precio.text()
+        cant = self.input_cantidad.text()
+        obs = self.input_obs.text()
+
+        if not id_prod or not precio or not cant:
+            QMessageBox.warning(self, "Error", "Por favor completa los campos de Precio y Cantidad.")
+            return
+
+        try:
+            conn = database.crear_conexion()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO movimientos (id_producto, fecha, tipo, precio, cantidad, observaciones)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (id_prod, fecha, tipo, float(precio), int(cant), obs))
+            conn.commit()
+            conn.close()
+            
+            QMessageBox.information(self, "Éxito", "El movimiento se registró exitosamente")
+            
+            # Limpiar campos tras éxito
+            self.input_precio.clear()
+            self.input_cantidad.clear()
+            self.input_obs.clear()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al guardar: {e}")
+
 # --- VENTANA PRINCIPAL ---
 class VentanaPrincipal(QMainWindow):
     def __init__(self):
@@ -298,6 +404,7 @@ class VentanaPrincipal(QMainWindow):
         # Botones con ICONOS (Emojis)
         self.btn_cat = QPushButton("  📁  Categorías")
         self.btn_prod = QPushButton("  📦  Productos")
+        self.btn_mov = QPushButton("  🔄  Movimientos")
         
         # Estilo de botones: Más compactos y con efecto hover
         estilo_botones = """
@@ -319,10 +426,12 @@ class VentanaPrincipal(QMainWindow):
         """
         self.btn_cat.setStyleSheet(estilo_botones)
         self.btn_prod.setStyleSheet(estilo_botones)
+        self.btn_mov.setStyleSheet(estilo_botones)
 
         # Añadir al layout
         layout_sidebar.addWidget(self.btn_cat)
         layout_sidebar.addWidget(self.btn_prod)
+        layout_sidebar.addWidget(self.btn_mov)
         
         # Espacio flexible al final para empujar todo hacia arriba
         layout_sidebar.addStretch()
@@ -331,12 +440,16 @@ class VentanaPrincipal(QMainWindow):
         self.paginas = QStackedWidget()
         self.mod_cat = ModuloCategorias()
         self.mod_prod = ModuloProductos()
+        self.mod_mov = ModuloMovimientos()
+
         self.paginas.addWidget(self.mod_cat)
         self.paginas.addWidget(self.mod_prod)
+        self.paginas.addWidget(self.mod_mov)    
 
         # Conexiones de botones
         self.btn_cat.clicked.connect(lambda: self.paginas.setCurrentIndex(0))
         self.btn_prod.clicked.connect(self.ir_a_productos)
+        self.btn_mov.clicked.connect(self.ir_a_movimientos)
 
         # Unir todo
         layout_principal.addWidget(self.sidebar)
@@ -345,6 +458,10 @@ class VentanaPrincipal(QMainWindow):
     def ir_a_productos(self):
         self.mod_prod.actualizar_combobox()
         self.paginas.setCurrentIndex(1)
+
+    def ir_a_movimientos(self):
+        self.mod_mov.actualizar_productos_combobox() 
+        self.paginas.setCurrentIndex(2)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
