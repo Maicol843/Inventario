@@ -3,12 +3,16 @@ import sqlite3
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
-    QHeaderView, QMessageBox, QFrame, QFormLayout, QComboBox, QStackedWidget, QDialog
+    QHeaderView, QMessageBox, QFrame, QFormLayout, QComboBox, QStackedWidget, 
+    QDialog, QScrollArea
 )
 from PyQt6.QtWidgets import QDateEdit 
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QDate
 from PyQt6.QtCore import Qt
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from datetime import datetime
 import database
 
 # --- VENTANA MODAL PARA CATEGORÍAS ---
@@ -47,7 +51,7 @@ class ModuloCategorias(QWidget):
         layout = QVBoxLayout(self)
         
         h1 = QLabel("CATEGORÍAS")
-        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: #34495e;")
+        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: white;")
         h1.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         h2 = QLabel("Registro de Categorías")
@@ -143,6 +147,7 @@ class ModuloCategorias(QWidget):
             btns_layout.setContentsMargins(0,0,0,0)
             
             btn_edit = QPushButton("Editar")
+            btn_edit.setStyleSheet("background-color: #0d6efd; color: white;")
             btn_edit.clicked.connect(lambda _, f=fila: self.abrir_modal_editar(f))
             
             btn_del = QPushButton("Eliminar")
@@ -197,7 +202,7 @@ class ModuloProductos(QWidget):
         layout = QVBoxLayout(self)
         
         h1 = QLabel("PRODUCTOS")
-        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: #34495e;")
+        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: white;")
         h1.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         h2 = QLabel("Registro de Productos")
@@ -219,7 +224,7 @@ class ModuloProductos(QWidget):
         form_layout.addRow("Proveedor:", self.input_proveedor)
         
         self.btn_registrar = QPushButton("Registrar Producto")
-        self.btn_registrar.setStyleSheet("background-color: #20c997; color: black; padding: 10px;")
+        self.btn_registrar.setStyleSheet("background-color: #6610f2; color: white; padding: 10px;")
         self.btn_registrar.clicked.connect(self.registrar_producto)
 
         center_layout = QHBoxLayout()
@@ -274,7 +279,7 @@ class ModuloMovimientos(QWidget):
         
         # Títulos
         h1 = QLabel("MOVIMIENTOS")
-        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: #34495e;")
+        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: white;")
         h1.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         h2 = QLabel("Registro de Movimientos")
@@ -312,7 +317,7 @@ class ModuloMovimientos(QWidget):
         form_layout.addRow("Observaciones:", self.input_obs)
         
         self.btn_registrar = QPushButton("Registrar Movimiento")
-        self.btn_registrar.setStyleSheet("background-color: #27ae60; color: white; padding: 12px; border-radius: 5px;")
+        self.btn_registrar.setStyleSheet("background-color: #6610f2; color: white; padding: 12px; border-radius: 5px;")
         self.btn_registrar.clicked.connect(self.registrar_movimiento)
 
         center_layout = QHBoxLayout()
@@ -379,7 +384,7 @@ class ModuloInventario(QWidget):
         
         # Título
         h1 = QLabel("INVENTARIO")
-        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: #34495e;")
+        h1.setStyleSheet("font-size: 32px; font-weight: bold; color: white;")
         h1.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(h1)
 
@@ -444,7 +449,6 @@ class ModuloInventario(QWidget):
         conn = database.crear_conexion()
         cursor = conn.cursor()
         
-        # Query: Se quitó la búsqueda por proveedor
         query = """
             SELECT 
                 p.codigo, 
@@ -452,7 +456,8 @@ class ModuloInventario(QWidget):
                 c.nombre as categoria,
                 p.id,
                 COALESCE(SUM(CASE WHEN m.tipo = 'Compra' THEN m.cantidad ELSE 0 END), 0) -
-                COALESCE(SUM(CASE WHEN m.tipo = 'Venta' THEN m.cantidad ELSE 0 END), 0) as stock_actual
+                COALESCE(SUM(CASE WHEN m.tipo = 'Venta' THEN m.cantidad ELSE 0 END), 0) as stock_actual,
+                p.proveedor
             FROM productos p
             LEFT JOIN categorias c ON p.id_categoria = c.id
             LEFT JOIN movimientos m ON p.id = m.id_producto
@@ -483,11 +488,11 @@ class ModuloInventario(QWidget):
             
             # Definir estado y colores
             if stock_actual > 10:
-                estado, color, texto_color = "Normal", "#27ae60", "white" # Verde
+                estado, color, texto_color = "Normal", "#198754", "white" # Verde
             elif 0 < stock_actual <= 10:
-                estado, color, texto_color = "Stock Bajo", "#f1c40f", "black" # Amarillo
+                estado, color, texto_color = "Stock Bajo", "#ffc107", "black" # Amarillo
             else:
-                estado, color, texto_color = "Sin Stock", "#e74c3c", "white" # Rojo
+                estado, color, texto_color = "Sin Stock", "#dc3545", "white" # Rojo
 
             items = [
                 QTableWidgetItem(str(fila[0])),
@@ -510,8 +515,11 @@ class ModuloInventario(QWidget):
             btns_layout.setContentsMargins(0,0,0,0)
             
             btn_ver = QPushButton("Ver")
+            datos_para_ver = (fila[3], fila[0], fila[1], fila[2], fila[5])
+            btn_ver.clicked.connect(lambda _, d=datos_para_ver: self.ir_a_ver_producto(d))
+
             btn_del = QPushButton("Eliminar")
-            btn_del.setStyleSheet("background-color: #c0392b; color: white;")
+            btn_del.setStyleSheet("background-color: #dc3545; color: white;")
             btn_del.clicked.connect(lambda _, id_p=fila[3]: self.eliminar_producto(id_p))
             
             btns_layout.addWidget(btn_ver)
@@ -520,6 +528,24 @@ class ModuloInventario(QWidget):
 
         conn.close()
         self.lbl_pagina.setText(f"Página {self.pagina_actual + 1}")
+
+    def ir_a_ver_producto(self, d):
+        ventana = self.window()
+        # d[0]=id, d[1]=cod, d[2]=nom, d[3]=cat, d[4]=prov
+        ventana.mod_ver_prod.mostrar_datos(d[0], d[1], d[2], d[3], d[4])
+        ventana.paginas.setCurrentWidget(ventana.mod_ver_prod)
+
+    def abrir_detalle(self, datos):
+        # datos debe ser una tupla: (codigo, nombre, categoria, proveedor)
+        ventana = self.window()
+        ventana.mod_ver_prod.mostrar_datos(datos)
+        ventana.paginas.setCurrentWidget(ventana.mod_ver_prod)
+
+    def ver_detalle_producto(self, nombre):
+        # Accedemos al padre (VentanaPrincipal) para cambiar la página
+        ventana_principal = self.window() 
+        ventana_principal.mod_ver_prod.set_producto(nombre)
+        ventana_principal.paginas.setCurrentWidget(ventana_principal.mod_ver_prod)
 
     def eliminar_producto(self, id_p):
         rta = QMessageBox.question(self, "Eliminar", "¿Eliminar producto y sus movimientos?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
@@ -551,6 +577,478 @@ class ModuloInventario(QWidget):
         if self.pagina_actual > 0:
             self.pagina_actual -= 1
             self.cargar_datos()
+
+# --- VENTANA MODAL PARA EDITAR MOVIMIENTO ---
+class FormularioEditarMovimiento(QDialog):
+    def __init__(self, datos):
+        super().__init__()
+        self.setWindowTitle("Editar Movimiento")
+        self.setFixedSize(350, 300)
+        layout = QFormLayout(self)
+
+        self.input_fecha = QDateEdit(self)
+        self.input_fecha.setCalendarPopup(True)
+        # Convertimos de AAAA-MM-DD a objeto QDate
+        fecha_obj = QDate.fromString(datos['fecha'], "yyyy-MM-dd")
+        self.input_fecha.setDate(fecha_obj)
+        self.input_fecha.setDisplayFormat("dd/MM/yyyy")
+        
+        self.combo_tipo = QComboBox(self)
+        self.combo_tipo.addItems(["Compra", "Venta"])
+        self.combo_tipo.setCurrentText(datos['tipo'])
+
+        self.input_precio = QLineEdit(self)
+        self.input_precio.setText(str(datos['precio']))
+
+        self.input_cantidad = QLineEdit(self)
+        self.input_cantidad.setText(str(datos['cantidad']))
+
+        self.input_obs = QLineEdit(self)
+        self.input_obs.setText(datos['obs'])
+
+        layout.addRow("Fecha:", self.input_fecha)
+        layout.addRow("Tipo:", self.combo_tipo)
+        layout.addRow("Precio:", self.input_precio)
+        layout.addRow("Cantidad:", self.input_cantidad)
+        layout.addRow("Obs:", self.input_obs)
+
+        self.btn_guardar = QPushButton("Actualizar Datos")
+        self.btn_guardar.setStyleSheet("background-color: #198754; color: white; padding: 8px; font-weight: bold; border-radius: 4px;")
+        layout.addRow(self.btn_guardar)
+        self.btn_guardar.clicked.connect(self.accept)
+
+# --- MÓDULO VER PRODUCTO ---
+class ModuloVerProducto(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.id_producto_actual = None
+        self.pagina_actual = 0
+        self.limite = 10
+        self.init_ui()
+
+    def init_ui(self):
+        self.layout_principal = QVBoxLayout(self)
+        self.layout_principal.setContentsMargins(30, 20, 30, 20)
+        self.layout_principal.setSpacing(15)
+
+        # 1. TÍTULO CENTRADO
+        self.lbl_nombre = QLabel("DETALLE DEL PRODUCTO")
+        self.lbl_nombre.setStyleSheet("font-size: 28px; font-weight: bold; color: white;")
+        self.lbl_nombre.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout_principal.addWidget(self.lbl_nombre)
+
+        # 2. DATOS TÉCNICOS (Izquierda)
+        self.detalles_frame = QFrame()
+        layout_detalles = QFormLayout(self.detalles_frame)
+        estilo_tit = "font-size: 14px; color: #7f8c8d;"
+        estilo_val = "font-size: 15px; color: white; font-weight: bold;"
+        
+        self.lbl_codigo = QLabel("-"); self.lbl_codigo.setStyleSheet(estilo_val)
+        self.lbl_categoria = QLabel("-"); self.lbl_categoria.setStyleSheet(estilo_val)
+        self.lbl_proveedor = QLabel("-"); self.lbl_proveedor.setStyleSheet(estilo_val)
+
+        layout_detalles.addRow(self.crear_lbl("Código:", estilo_tit), self.lbl_codigo)
+        layout_detalles.addRow(self.crear_lbl("Categoría:", estilo_tit), self.lbl_categoria)
+        layout_detalles.addRow(self.crear_lbl("Proveedor:", estilo_tit), self.lbl_proveedor)
+        self.layout_principal.addWidget(self.detalles_frame)
+
+        # 3. SECCIÓN DE 5 CARDS CENTRADAS
+        container_cards = QWidget()
+        layout_cards = QHBoxLayout(container_cards)
+        layout_cards.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.card_compras = self.crear_card("TOTAL COMPRAS")
+        self.card_ventas = self.crear_card("TOTAL VENTAS")
+        self.card_ganancia = self.crear_card("GANANCIAS")
+        self.card_stock = self.crear_card("STOCK ACTUAL")
+        self.card_estado = self.crear_card("ESTADO")
+
+        for c in [self.card_compras, self.card_ventas, self.card_ganancia, self.card_stock, self.card_estado]:
+            layout_cards.addWidget(c)
+        self.layout_principal.addWidget(container_cards)
+
+        # 4. FILTROS
+        frame_filtros = QFrame()
+        lay_f = QHBoxLayout(frame_filtros)
+        
+        self.f_fecha = QLineEdit()
+        self.f_fecha.setPlaceholderText("Buscar fecha (DD/MM/AAAA)")
+        self.f_fecha.textChanged.connect(self.reset_paginar)
+        
+        self.f_tipo = QComboBox()
+        self.f_tipo.addItems(["Todos", "Compra", "Venta"])
+        self.f_tipo.currentTextChanged.connect(self.reset_paginar)
+
+        lay_f.addWidget(QLabel("Fecha:")); lay_f.addWidget(self.f_fecha)
+        lay_f.addWidget(QLabel("Tipo:")); lay_f.addWidget(self.f_tipo)
+        self.layout_principal.addWidget(frame_filtros)
+
+        # 5. TABLA DE MOVIMIENTOS
+        self.tabla = QTableWidget()
+        self.tabla.setColumnCount(6) # Fecha, Tipo, Precio, Cant, Obs, Acciones
+        self.tabla.setHorizontalHeaderLabels(["Fecha", "Tipo", "Precio", "Cantidad", "Observaciones", "Acciones"])
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout_principal.addWidget(self.tabla)
+
+        # 6. PAGINACIÓN
+        lay_pag = QHBoxLayout()
+        self.btn_ant = QPushButton("Anterior")
+        self.btn_sig = QPushButton("Siguiente")
+        self.lbl_pag = QLabel("Página 1")
+        lay_pag.addStretch(); lay_pag.addWidget(self.btn_ant); lay_pag.addWidget(self.lbl_pag); lay_pag.addWidget(self.btn_sig); lay_pag.addStretch()
+        self.layout_principal.addLayout(lay_pag)
+        
+        self.btn_ant.clicked.connect(self.pagina_anterior)
+        self.btn_sig.clicked.connect(self.pagina_siguiente)
+
+        layout_botones_final = QHBoxLayout()
+        # BOTÓN VOLVER
+        self.btn_volver = QPushButton("← Volver al Inventario")
+        self.btn_volver.setFixedWidth(200)
+        self.btn_volver.setStyleSheet("background-color: #6610f2; color: white; padding: 10px; font-weight: bold; border-radius: 5px;")
+
+        # BOTON GRAFICA DE COMPRAS
+        self.btn_ver_grafica = QPushButton("📊 Gráfica de Compras")
+        self.btn_ver_grafica.setFixedWidth(200)
+        self.btn_ver_grafica.setStyleSheet("background-color: #6610f2; color: white; padding: 10px; border-radius: 5px;")
+
+        # BOTÓN GRAFICA DE VENTAS
+        self.btn_grafica_ventas = QPushButton("📊 Gráfica de Ventas")
+        self.btn_grafica_ventas.setFixedWidth(200)
+        self.btn_grafica_ventas.setStyleSheet("background-color: #6610f2; color: white; padding: 10px; border-radius: 5px;")
+
+        layout_botones_final.addStretch()
+        layout_botones_final.addWidget(self.btn_volver)
+        layout_botones_final.addWidget(self.btn_ver_grafica)
+        layout_botones_final.addWidget(self.btn_grafica_ventas)
+        layout_botones_final.addStretch()
+    
+        self.layout_principal.addLayout(layout_botones_final)
+
+    def crear_lbl(self, t, e):
+        l = QLabel(t); l.setStyleSheet(e); return l
+
+    def crear_card(self, titulo):
+        card = QFrame()
+        card.setFixedSize(165, 100)
+        card.setStyleSheet("background-color: #fdfdfd; border-radius: 10px;")
+        lay = QVBoxLayout(card)
+        t = QLabel(titulo); t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t.setStyleSheet("font-size: 12px; color: black; font-weight: bold;")
+        t.setTextFormat(Qt.TextFormat.RichText)
+        v = QLabel("0"); v.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.setStyleSheet("font-size: 18px; color: #2c3e50; font-weight: bold;")
+        lay.addWidget(t); lay.addWidget(v)
+        card.lbl_tit = t; card.lbl_val = v
+        return card
+
+    def mostrar_datos(self, id_p, cod, nom, cat, prov):
+        self.id_producto_actual = id_p
+        self.lbl_codigo.setText(str(cod))
+        self.lbl_nombre.setText(str(nom).upper())
+        self.lbl_categoria.setText(str(cat))
+        self.lbl_proveedor.setText(str(prov) if prov else "N/A")
+        self.reset_paginar()
+
+    def reset_paginar(self):
+        self.pagina_actual = 0
+        self.actualizar_todo()
+
+    def actualizar_todo(self):
+        self.actualizar_estadisticas()
+        self.cargar_tabla()
+
+    def actualizar_estadisticas(self):
+        conn = database.crear_conexion()
+        cursor = conn.cursor()
+        cursor.execute("SELECT SUM(precio) FROM movimientos WHERE id_producto=? AND tipo='Compra'", (self.id_producto_actual,))
+        t_c = cursor.fetchone()[0] or 0.0
+        cursor.execute("SELECT SUM(cantidad * precio) FROM movimientos WHERE id_producto=? AND tipo='Venta'", (self.id_producto_actual,))
+        t_v = cursor.fetchone()[0] or 0.0
+        cursor.execute("SELECT SUM(CASE WHEN tipo='Compra' THEN cantidad ELSE -cantidad END) FROM movimientos WHERE id_producto=?", (self.id_producto_actual,))
+        stk = cursor.fetchone()[0] or 0
+        conn.close()
+
+        ganancia = t_v - t_c
+        porc = (ganancia / t_c * 100) if t_c > 0 else 0
+        col = "#198754" if ganancia >= 0 else "#dc3545"
+        fle = "↑" if ganancia >= 0 else "↓"
+
+        self.card_ganancia.lbl_tit.setText(f"GANANCIAS <span style='color: {col};'>({fle} {abs(porc):.1f}%)</span>")
+        self.card_ganancia.lbl_val.setText(f"$ {abs(ganancia):,.2f}")
+        self.card_compras.lbl_val.setText(f"$ {t_c:,.2f}")
+        self.card_ventas.lbl_val.setText(f"$ {t_v:,.2f}")
+        self.card_stock.lbl_val.setText(str(stk))
+        
+        c_stk = "#198754" if stk > 10 else "#ffc107" if stk > 0 else "#dc3545"
+        e_stk = "NORMAL" if stk > 10 else "BAJO" if stk > 0 else "SIN STOCK"
+        self.card_estado.setStyleSheet(f"background-color: {c_stk}; border-radius: 10px;")
+        self.card_estado.lbl_val.setText(e_stk); self.card_estado.lbl_val.setStyleSheet("color: white; font-weight: bold;")
+
+    def cargar_tabla(self):
+        conn = database.crear_conexion()
+        cursor = conn.cursor()
+        
+        filtro_crudo = self.f_fecha.text()
+        f_sql = f"%{filtro_crudo}%"
+        if len(filtro_crudo) == 10 and "/" in filtro_crudo:
+            try:
+                partes = filtro_crudo.split("/")
+                f_sql = f"{partes[2]}-{partes[1]}-{partes[0]}"
+            except: pass
+
+        f_t = self.f_tipo.currentText()
+        query = "SELECT fecha, tipo, precio, cantidad, observaciones, id FROM movimientos WHERE id_producto = ? AND fecha LIKE ?"
+        params = [self.id_producto_actual, f_sql]
+        if f_t != "Todos":
+            query += " AND tipo = ?"
+            params.append(f_t)
+        
+        query += f" ORDER BY fecha DESC LIMIT {self.limite} OFFSET {self.pagina_actual * self.limite}"
+        cursor.execute(query, params)
+        movs = cursor.fetchall()
+        conn.close()
+
+        self.tabla.setRowCount(0)
+        for m in movs:
+            r = self.tabla.rowCount()
+            self.tabla.insertRow(r)
+            
+            # Formatear fecha
+            try:
+                f_obj = QDate.fromString(m[0], "yyyy-MM-dd")
+                fecha_tabla = f_obj.toString("dd/MM/yyyy")
+            except: fecha_tabla = m[0]
+
+            datos_fila = [fecha_tabla, m[1], f"$ {m[2]:,.2f}", m[3], m[4]]
+            
+            for i, valor in enumerate(datos_fila):
+                item = QTableWidgetItem(str(valor))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.tabla.setItem(r, i, item)
+            
+            # --- CELDA DE ACCIONES (Botones Juntos) ---
+            widget_acciones = QWidget()
+            layout_acc = QHBoxLayout(widget_acciones)
+            layout_acc.setContentsMargins(5, 2, 5, 2)
+            layout_acc.setSpacing(10)
+            layout_acc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            btn_edit = QPushButton("Editar")
+            btn_edit.setFixedSize(65, 25)
+            btn_edit.setStyleSheet("background-color: #0d6efd; color: white; font-size: 11px; border-radius: 3px;")
+            btn_edit.clicked.connect(lambda _, d=m: self.editar_mov(d))
+
+            btn_del = QPushButton("Eliminar")
+            btn_del.setFixedSize(65, 25)
+            btn_del.setStyleSheet("background-color: #dc3545; color: white; font-size: 11px; border-radius: 3px;")
+            btn_del.clicked.connect(lambda _, id_m=m[5]: self.eliminar_mov(id_m))
+
+            layout_acc.addWidget(btn_edit)
+            layout_acc.addWidget(btn_del)
+            
+            self.tabla.setCellWidget(r, 5, widget_acciones)
+        
+        self.lbl_pag.setText(f"Página {self.pagina_actual + 1}")
+
+    def editar_mov(self, m):
+        d = {'fecha': m[0], 'tipo': m[1], 'precio': m[2], 'cantidad': m[3], 'obs': m[4]}
+        f = FormularioEditarMovimiento(d)
+        if f.exec():
+            conn = database.crear_conexion()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE movimientos SET fecha=?, tipo=?, precio=?, cantidad=?, observaciones=? WHERE id=?",
+                (f.input_fecha.date().toString("yyyy-MM-dd"), f.combo_tipo.currentText(), f.input_precio.text(), f.input_cantidad.text(), f.input_obs.text(), m[5]))
+            conn.commit(); conn.close()
+            self.actualizar_todo()
+
+    def eliminar_mov(self, id_m):
+        if QMessageBox.question(self, "Eliminar", "¿Borrar este registro?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+            conn = database.crear_conexion(); cursor = conn.cursor()
+            cursor.execute("DELETE FROM movimientos WHERE id=?", (id_m,))
+            conn.commit(); conn.close()
+            self.actualizar_todo()
+
+    def pagina_anterior(self):
+        if self.pagina_actual > 0:
+            self.pagina_actual -= 1
+            self.cargar_tabla()
+
+    def pagina_siguiente(self):
+        self.pagina_actual += 1
+        self.cargar_tabla()
+
+class ModuloGraficaCompras(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.id_producto_actual = None
+        self.init_ui()
+
+    def init_ui(self):
+        self.layout_principal = QVBoxLayout(self)
+        self.layout_principal.setContentsMargins(50, 30, 50, 30)
+        self.layout_principal.setSpacing(20)
+
+        # Título centrado profesional
+        self.lbl_titulo = QLabel("COMPRAS")
+        self.lbl_titulo.setStyleSheet("font-size: 28px; font-weight: bold; color: white;")
+        self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout_principal.addWidget(self.lbl_titulo)
+
+        # Contenedor de la gráfica - Aumentamos un poco el tamaño
+        self.fig, self.ax = plt.subplots(figsize=(9, 5)) 
+        self.canvas = FigureCanvas(self.fig)
+        self.layout_principal.addWidget(self.canvas)
+
+        # Botón Volver estilizado
+        self.btn_volver_detalle = QPushButton("← Volver al Detalle")
+        self.btn_volver_detalle.setFixedWidth(220)
+        self.btn_volver_detalle.setStyleSheet("""
+            background-color: #6610f2; color: white; padding: 12px; 
+            font-weight: bold; border-radius: 6px; font-size: 14px;
+        """)
+        self.layout_principal.addWidget(self.btn_volver_detalle, alignment=Qt.AlignmentFlag.AlignCenter)
+
+    def cargar_grafica(self, id_producto, nombre_producto):
+        self.id_producto_actual = id_producto
+        self.lbl_titulo.setText(f"COMPRAS: {nombre_producto.upper()}")
+        
+        conexion = database.crear_conexion()
+        cursor = conexion.cursor()
+        
+        # SQL: Suma total de precios por mes
+        query = """
+            SELECT strftime('%m', fecha) as mes, SUM(precio) 
+            FROM movimientos 
+            WHERE id_producto = ? AND tipo = 'Compra'
+            GROUP BY mes ORDER BY mes ASC
+        """
+        cursor.execute(query, (id_producto,))
+        datos = cursor.fetchall()
+        conexion.close()
+
+        meses_etiquetas = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        valores = [0.0] * 12
+        
+        for mes_str, total_precio in datos:
+            try:
+                indice = int(mes_str) - 1
+                valores[indice] = total_precio
+            except: continue
+
+        self.ax.clear()
+        
+        # 1. Ajuste del límite superior para que no choque el texto
+        max_valor = max(valores) if valores and max(valores) > 0 else 100
+        self.ax.set_ylim(0, max_valor * 1.5) # Damos un 50% de espacio extra arriba
+
+        # 2. Dibujo de barras
+        barras = self.ax.bar(meses_etiquetas, valores, color='#27ae60', edgecolor='#1e8449', alpha=0.9)
+        
+        # Estética general
+        self.ax.set_title("Tabla mensual de compras", fontsize=11, fontweight='bold', pad=20)
+        self.ax.set_ylabel("Monto Total ($)", fontsize=10)
+        self.ax.grid(axis='y', linestyle='--', alpha=0.3)
+        
+        # 3. Etiquetas de dinero con mejor formato y posición
+        for barra in barras:
+            height = barra.get_height()
+            if height > 0:
+                self.ax.annotate(f'${height:,.0f}',
+                    xy=(barra.get_x() + barra.get_width() / 2, height),
+                    xytext=(0, 8), # 8 puntos de separación hacia arriba
+                    textcoords="offset points",
+                    ha='center', va='bottom', 
+                    fontsize=10, 
+                    fontweight='bold',
+                    color='#2c3e50')
+
+        # Ajuste final para evitar recortes en los bordes
+        self.fig.tight_layout()
+        self.canvas.draw()
+
+class ModuloGraficaVentas(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.id_producto_actual = None
+        self.init_ui()
+
+    def init_ui(self):
+        self.layout_principal = QVBoxLayout(self)
+        self.layout_principal.setContentsMargins(50, 30, 50, 30)
+        self.layout_principal.setSpacing(20)
+
+        # H1: Ventas del Mes (Título centrado)
+        self.lbl_titulo = QLabel("VENTAS")
+        self.lbl_titulo.setStyleSheet("font-size: 32px; font-weight: bold; color: white;")
+        self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout_principal.addWidget(self.lbl_titulo)
+
+        # Contenedor de la gráfica
+        self.fig, self.ax = plt.subplots(figsize=(9, 5))
+        self.canvas = FigureCanvas(self.fig)
+        self.layout_principal.addWidget(self.canvas)
+
+        # Botón Volver
+        self.btn_volver_detalle = QPushButton("← Volver al Detalle")
+        self.btn_volver_detalle.setFixedWidth(220)
+        self.btn_volver_detalle.setStyleSheet("""
+            background-color: #6610f2; color: white; padding: 12px; 
+            font-weight: bold; border-radius: 6px; font-size: 14px;
+        """)
+        self.layout_principal.addWidget(self.btn_volver_detalle, alignment=Qt.AlignmentFlag.AlignCenter)
+
+    def cargar_grafica(self, id_producto, nombre_producto):
+        self.id_producto_actual = id_producto
+        self.lbl_titulo.setText(f"VENTAS: {nombre_producto.upper()}")
+        
+        conexion = database.crear_conexion()
+        cursor = conexion.cursor()
+        
+        # SQL: Multiplica precio * cantidad para el total de VENTAS
+        query = """
+            SELECT strftime('%m', fecha) as mes, SUM(precio * cantidad) 
+            FROM movimientos 
+            WHERE id_producto = ? AND tipo = 'Venta'
+            GROUP BY mes ORDER BY mes ASC
+        """
+        cursor.execute(query, (id_producto,))
+        datos = cursor.fetchall()
+        conexion.close()
+
+        meses_etiquetas = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        valores = [0.0] * 12
+        
+        for mes_str, total_venta in datos:
+            try:
+                valores[int(mes_str) - 1] = total_venta
+            except: continue
+
+        self.ax.clear()
+        
+        # Ajuste de escala para que los números no choquen arriba
+        max_valor = max(valores) if valores and max(valores) > 0 else 100
+        self.ax.set_ylim(0, max_valor * 1.5)
+
+        # Gráfica de barras (Color Azul para diferenciar de compras)
+        barras = self.ax.bar(meses_etiquetas, valores, color='#3498db', edgecolor='#2980b9', alpha=0.9)
+        
+        self.ax.set_title("Ingresos de ventas mensuales", fontsize=11, fontweight='bold', pad=20)
+        self.ax.set_ylabel("Total Ventas ($)")
+        self.ax.grid(axis='y', linestyle='--', alpha=0.3)
+        
+        # Etiquetas de dinero sobre las barras
+        for barra in barras:
+            height = barra.get_height()
+            if height > 0:
+                self.ax.annotate(f'${height:,.0f}',
+                    xy=(barra.get_x() + barra.get_width() / 2, height),
+                    xytext=(0, 8), textcoords="offset points",
+                    ha='center', va='bottom', fontsize=10, fontweight='bold', color='#2c3e50')
+
+        self.fig.tight_layout()
+        self.canvas.draw()
 
 # --- VENTANA PRINCIPAL ---
 class VentanaPrincipal(QMainWindow):
@@ -632,17 +1130,28 @@ class VentanaPrincipal(QMainWindow):
         self.mod_prod = ModuloProductos()
         self.mod_mov = ModuloMovimientos()
         self.mod_inv = ModuloInventario()
+        self.mod_ver_prod = ModuloVerProducto()
+        self.mod_grafica = ModuloGraficaCompras()
+        self.mod_grafica_ventas = ModuloGraficaVentas()
 
         self.paginas.addWidget(self.mod_cat)
         self.paginas.addWidget(self.mod_prod)
         self.paginas.addWidget(self.mod_mov)    
         self.paginas.addWidget(self.mod_inv)
+        self.paginas.addWidget(self.mod_ver_prod)
+        self.paginas.addWidget(self.mod_grafica)
+        self.paginas.addWidget(self.mod_grafica_ventas)
 
         # Conexiones de botones
         self.btn_cat.clicked.connect(lambda: self.paginas.setCurrentIndex(0))
         self.btn_prod.clicked.connect(self.ir_a_productos)
         self.btn_mov.clicked.connect(self.ir_a_movimientos)
         self.btn_inv.clicked.connect(self.ir_a_inventario)
+        self.mod_ver_prod.btn_volver.clicked.connect(lambda: self.paginas.setCurrentIndex(3))
+        self.mod_ver_prod.btn_ver_grafica.clicked.connect(self.ir_a_grafica_compras)
+        self.mod_grafica.btn_volver_detalle.clicked.connect(lambda: self.paginas.setCurrentIndex(4))
+        self.mod_ver_prod.btn_grafica_ventas.clicked.connect(self.abrir_grafica_ventas)
+        self.mod_grafica_ventas.btn_volver_detalle.clicked.connect(lambda: self.paginas.setCurrentIndex(5))
 
         # Unir todo
         layout_principal.addWidget(self.sidebar)
@@ -659,6 +1168,18 @@ class VentanaPrincipal(QMainWindow):
     def ir_a_inventario(self):
         self.mod_inv.cargar_datos() # Refresca el stock cada vez que entras
         self.paginas.setCurrentIndex(3)
+
+    def ir_a_grafica_compras(self):
+        id_p = self.mod_ver_prod.id_producto_actual
+        nombre_p = self.mod_ver_prod.lbl_nombre.text()
+        self.mod_grafica.cargar_grafica(id_p, nombre_p)
+        self.paginas.setCurrentIndex(5) 
+
+    def abrir_grafica_ventas(self):
+        id_p = self.mod_ver_prod.id_producto_actual
+        nombre_p = self.mod_ver_prod.lbl_nombre.text()
+        self.mod_grafica_ventas.cargar_grafica(id_p, nombre_p)
+        self.paginas.setCurrentIndex(6) 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
