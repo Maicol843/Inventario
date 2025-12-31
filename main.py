@@ -1,10 +1,10 @@
 import sys
 import sqlite3
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
-    QHeaderView, QMessageBox, QFrame, QFormLayout, QComboBox, QStackedWidget, 
-    QDialog, QScrollArea
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+    QHeaderView, QMessageBox, QFrame, QFormLayout, QComboBox, QStackedWidget,
+    QDialog, QDateEdit, QFileDialog 
 )
 from PyQt6.QtWidgets import QDateEdit 
 from PyQt6.QtGui import QColor
@@ -12,8 +12,15 @@ from PyQt6.QtCore import QDate
 from PyQt6.QtCore import Qt
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from fpdf import FPDF
 from datetime import datetime
 import database
+
+try:
+    from fpdf import FPDF
+    FPDF_INSTALADO = True
+except ImportError:
+    FPDF_INSTALADO = False
 
 # --- VENTANA MODAL PARA CATEGORÍAS ---
 class FormularioCategoria(QDialog):
@@ -1050,6 +1057,224 @@ class ModuloGraficaVentas(QWidget):
         self.fig.tight_layout()
         self.canvas.draw()
 
+# --- MODULO DE REPORTES ---
+class ModuloReportes(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.pagina_actual = 0
+        self.limite = 10
+        self.init_ui()
+
+    def init_ui(self):
+        self.layout_principal = QVBoxLayout(self)
+        self.layout_principal.setContentsMargins(30, 20, 30, 20)
+        self.layout_principal.setSpacing(15)
+
+        # Título Centrado
+        self.lbl_titulo = QLabel("REPORTES DE MOVIMIENTOS")
+        self.lbl_titulo.setStyleSheet("font-size: 28px; font-weight: bold; color: white; margin-bottom: 10px;")
+        self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout_principal.addWidget(self.lbl_titulo)
+
+        # --- FILTROS ---
+        frame_filtros = QFrame()
+        frame_filtros.setStyleSheet("background-color: black; border-radius: 10px;")
+        lay_f = QHBoxLayout(frame_filtros)
+        lay_f.setContentsMargins(15, 10, 15, 10)
+
+        estilo_label = "font-weight: bold; color: #7f8c8d;"
+
+        self.f_inicio = QDateEdit()
+        self.f_inicio.setCalendarPopup(True)
+        self.f_inicio.setDate(QDate.currentDate().addMonths(-1))
+
+        self.f_fin = QDateEdit()
+        self.f_fin.setCalendarPopup(True)
+        self.f_fin.setDate(QDate.currentDate())
+
+        self.f_tipo = QComboBox()
+        self.f_tipo.addItems(["Todos", "Compra", "Venta"])
+        self.f_tipo.setFixedWidth(100)
+
+        # BOTÓN BUSCAR
+        self.btn_buscar = QPushButton("🔍 Buscar")
+        self.btn_buscar.setStyleSheet("background-color: #0d6efd; color: white; padding: 8px 15px; font-weight: bold; border-radius: 5px;")
+        self.btn_buscar.clicked.connect(self.reset_paginar)
+
+        # BOTÓN LIMPIAR 
+        self.btn_limpiar = QPushButton("🧹 Limpiar")
+        self.btn_limpiar.setStyleSheet("background-color: #20c997; color: white; padding: 8px 15px; font-weight: bold; border-radius: 5px;")
+        self.btn_limpiar.clicked.connect(self.limpiar_filtros)
+
+        # BOTÓN EXPORTAR PDF
+        self.btn_pdf = QPushButton("📕 Exportar PDF")
+        self.btn_pdf.setStyleSheet("background-color: #e74c3c; color: white; padding: 8px 15px; font-weight: bold; border-radius: 5px;")
+        self.btn_pdf.clicked.connect(self.exportar_pdf)
+
+        lay_f.addWidget(QLabel("Desde:")); lay_f.addWidget(self.f_inicio)
+        lay_f.addWidget(QLabel("Hasta:")); lay_f.addWidget(self.f_fin)
+        lay_f.addWidget(QLabel("Tipo:")); lay_f.addWidget(self.f_tipo)
+        lay_f.addSpacing(10)
+        lay_f.addWidget(self.btn_buscar)
+        lay_f.addWidget(self.btn_limpiar) 
+        lay_f.addWidget(self.btn_pdf)
+        
+        self.layout_principal.addWidget(frame_filtros)
+
+        # --- TABLA ---
+        self.tabla = QTableWidget()
+        self.tabla.setColumnCount(7)
+        self.tabla.setHorizontalHeaderLabels(["Fecha", "Código", "Producto", "Tipo", "Precio", "Cantidad", "Observaciones"])
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla.setAlternatingRowColors(True)
+        self.layout_principal.addWidget(self.tabla)
+
+        # --- PAGINACIÓN ---
+        lay_pag = QHBoxLayout()
+        self.btn_ant = QPushButton("Anterior")
+        self.btn_sig = QPushButton("Siguiente")
+        self.lbl_pag = QLabel("Página 1")
+        
+        self.btn_ant.clicked.connect(self.pagina_anterior)
+        self.btn_sig.clicked.connect(self.pagina_siguiente)
+
+        lay_pag.addStretch(); lay_pag.addWidget(self.btn_ant); lay_pag.addWidget(self.lbl_pag); lay_pag.addWidget(self.btn_sig); lay_pag.addStretch()
+        self.layout_principal.addLayout(lay_pag)
+
+    def exportar_pdf(self):
+        if not FPDF_INSTALADO:
+            QMessageBox.critical(self, "Error", "La librería fpdf2 no está instalada.")
+            return
+
+        filas = self.tabla.rowCount()
+        if filas == 0:
+            QMessageBox.warning(self, "Aviso", "No hay datos para exportar.")
+            return
+
+        # 1. ABRIR CUADRO DE DIÁLOGO PARA GUARDAR
+        nombre_sugerido = f"Reporte_{datetime.now().strftime('%d_%m_%Y')}.pdf"
+        
+        # Esta función abre la ventana de Windows/Mac/Linux para elegir ruta
+        ruta_guardado, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Guardar Reporte", 
+            nombre_sugerido, 
+            "Archivos PDF (*.pdf)"
+        )
+
+        # Si el usuario cierra la ventana o cancela, salimos de la función
+        if not ruta_guardado:
+            return
+
+        try:
+            # 2. GENERAR EL CONTENIDO DEL PDF (Igual que antes)
+            pdf = FPDF(orientation='L', unit='mm', format='A4')
+            pdf.add_page()
+            
+            # Encabezado estilizado
+            pdf.set_font("Arial", 'B', 20)
+            pdf.set_text_color(44, 62, 80)
+            pdf.cell(0, 15, "REPORTE DE MOVIMIENTOS", ln=True, align='C')
+            
+            pdf.set_font("Arial", 'I', 11)
+            pdf.set_text_color(127, 140, 141)
+            rango = f"Filtros: {self.f_inicio.date().toString('dd/MM/yyyy')} a {self.f_fin.date().toString('dd/MM/yyyy')} | Tipo: {self.f_tipo.currentText()}"
+            pdf.cell(0, 10, rango, ln=True, align='C')
+            pdf.ln(5)
+
+            # Configuración de tabla
+            columnas = ["Fecha", "Cod.", "Producto", "Tipo", "Precio", "Cant.", "Observaciones"]
+            anchos = [25, 25, 55, 20, 30, 15, 100]
+
+            # Cabecera de tabla azul
+            pdf.set_fill_color(52, 152, 219)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Arial", 'B', 10)
+            for i in range(len(columnas)):
+                pdf.cell(anchos[i], 10, columnas[i], border=1, align='C', fill=True)
+            pdf.ln()
+
+            # Filas de la tabla
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font("Arial", '', 9)
+            for r in range(filas):
+                for c in range(self.tabla.columnCount()):
+                    item = self.tabla.item(r, c)
+                    texto = item.text() if item else ""
+                    if len(texto) > 55: texto = texto[:52] + "..."
+                    pdf.cell(anchos[c], 8, texto, border=1, align='C')
+                pdf.ln()
+
+            # 3. GUARDAR EN LA RUTA SELECCIONADA
+            pdf.output(ruta_guardado)
+            
+            QMessageBox.information(self, "Éxito", "El reporte se ha guardado correctamente.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo guardar el PDF: {str(e)}")
+
+    def limpiar_filtros(self):
+        """Reinicia los campos a sus valores originales y recarga"""
+        self.f_inicio.setDate(QDate.currentDate().addMonths(-1))
+        self.f_fin.setDate(QDate.currentDate())
+        self.f_tipo.setCurrentIndex(0) # Vuelve a "Todos"
+        self.reset_paginar()
+
+    def reset_paginar(self):
+        self.pagina_actual = 0
+        self.cargar_datos()
+
+    def cargar_datos(self):
+        # Lógica de carga con los filtros actuales
+        fecha_ini = self.f_inicio.date().toString("yyyy-MM-dd")
+        fecha_fin = self.f_fin.date().toString("yyyy-MM-dd")
+        tipo = self.f_tipo.currentText()
+
+        conn = database.crear_conexion()
+        cursor = conn.cursor()
+
+        query = """
+            SELECT m.fecha, p.codigo, p.nombre, m.tipo, m.precio, m.cantidad, m.observaciones
+            FROM movimientos m
+            JOIN productos p ON m.id_producto = p.id
+            WHERE m.fecha BETWEEN ? AND ?
+        """
+        params = [fecha_ini, fecha_fin]
+
+        if tipo != "Todos":
+            query += " AND m.tipo = ?"
+            params.append(tipo)
+
+        query += f" ORDER BY m.fecha DESC LIMIT {self.limite} OFFSET {self.pagina_actual * self.limite}"
+        
+        cursor.execute(query, params)
+        datos = cursor.fetchall()
+        conn.close()
+
+        self.tabla.setRowCount(0)
+        for r_idx, r_data in enumerate(datos):
+            self.tabla.insertRow(r_idx)
+            for c_idx, valor in enumerate(r_data):
+                if c_idx == 4: valor = f"$ {valor:,.2f}"
+                if c_idx == 0:
+                    try: valor = QDate.fromString(valor, "yyyy-MM-dd").toString("dd/MM/yyyy")
+                    except: pass
+                
+                item = QTableWidgetItem(str(valor))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.tabla.setItem(r_idx, c_idx, item)
+
+        self.lbl_pag.setText(f"Página {self.pagina_actual + 1}")
+
+    def pagina_anterior(self):
+        if self.pagina_actual > 0:
+            self.pagina_actual -= 1
+            self.cargar_datos()
+
+    def pagina_siguiente(self):
+        self.pagina_actual += 1
+        self.cargar_datos()
+
 # --- VENTANA PRINCIPAL ---
 class VentanaPrincipal(QMainWindow):
     def __init__(self):
@@ -1091,6 +1316,7 @@ class VentanaPrincipal(QMainWindow):
         self.btn_prod = QPushButton("  📦  Productos")
         self.btn_mov = QPushButton("  🔄  Movimientos")
         self.btn_inv = QPushButton("  📊  Inventario")
+        self.btn_reportes = QPushButton("  📋  Reportes")
         
         # Estilo de botones: Más compactos y con efecto hover
         estilo_botones = """
@@ -1114,12 +1340,14 @@ class VentanaPrincipal(QMainWindow):
         self.btn_prod.setStyleSheet(estilo_botones)
         self.btn_mov.setStyleSheet(estilo_botones)
         self.btn_inv.setStyleSheet(estilo_botones)
+        self.btn_reportes.setStyleSheet(estilo_botones)
 
         # Añadir al layout
         layout_sidebar.addWidget(self.btn_cat)
         layout_sidebar.addWidget(self.btn_prod)
         layout_sidebar.addWidget(self.btn_mov)
         layout_sidebar.addWidget(self.btn_inv)
+        layout_sidebar.addWidget(self.btn_reportes)
         
         # Espacio flexible al final para empujar todo hacia arriba
         layout_sidebar.addStretch()
@@ -1133,6 +1361,7 @@ class VentanaPrincipal(QMainWindow):
         self.mod_ver_prod = ModuloVerProducto()
         self.mod_grafica = ModuloGraficaCompras()
         self.mod_grafica_ventas = ModuloGraficaVentas()
+        self.mod_reportes = ModuloReportes()
 
         self.paginas.addWidget(self.mod_cat)
         self.paginas.addWidget(self.mod_prod)
@@ -1141,6 +1370,7 @@ class VentanaPrincipal(QMainWindow):
         self.paginas.addWidget(self.mod_ver_prod)
         self.paginas.addWidget(self.mod_grafica)
         self.paginas.addWidget(self.mod_grafica_ventas)
+        self.paginas.addWidget(self.mod_reportes)
 
         # Conexiones de botones
         self.btn_cat.clicked.connect(lambda: self.paginas.setCurrentIndex(0))
@@ -1152,6 +1382,7 @@ class VentanaPrincipal(QMainWindow):
         self.mod_grafica.btn_volver_detalle.clicked.connect(lambda: self.paginas.setCurrentIndex(4))
         self.mod_ver_prod.btn_grafica_ventas.clicked.connect(self.abrir_grafica_ventas)
         self.mod_grafica_ventas.btn_volver_detalle.clicked.connect(lambda: self.paginas.setCurrentIndex(5))
+        self.btn_reportes.clicked.connect(self.ir_a_reportes)
 
         # Unir todo
         layout_principal.addWidget(self.sidebar)
@@ -1180,6 +1411,10 @@ class VentanaPrincipal(QMainWindow):
         nombre_p = self.mod_ver_prod.lbl_nombre.text()
         self.mod_grafica_ventas.cargar_grafica(id_p, nombre_p)
         self.paginas.setCurrentIndex(6) 
+
+    def ir_a_reportes(self):
+        self.mod_reportes.cargar_datos()
+        self.paginas.setCurrentIndex(7)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
