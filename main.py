@@ -289,7 +289,7 @@ class ModuloMovimientos(QWidget):
         h1.setStyleSheet("font-size: 32px; font-weight: bold; color: white;")
         h1.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        h2 = QLabel("Registro de Movimientos")
+        h2 = QLabel("MOVIMIENTOS")
         h2.setStyleSheet("font-size: 18px; color: #7f8c8d; margin-bottom: 20px;")
         h2.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
@@ -400,15 +400,15 @@ class ModuloInventario(QWidget):
         h2.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(h2)
 
-        # Filtros: Buscador (sin proveedor) y Select de Stock (con Normal)
+        # Filtros: Buscador (Ahora incluye proveedor) y Select de Stock
         filtros_layout = QHBoxLayout()
         
         self.input_buscar = QLineEdit()
-        self.input_buscar.setPlaceholderText("🔍 Buscar por Código, Producto o Categoría...")
+        # Se actualiza el texto de ayuda
+        self.input_buscar.setPlaceholderText("🔍 Buscar por Código, Producto, Categoría o Proveedor...")
         self.input_buscar.textChanged.connect(self.cargar_datos)
         
         self.combo_filtro_stock = QComboBox()
-        # Se añade "Normal" a las opciones
         self.combo_filtro_stock.addItems(["Todos los niveles", "Normal", "Stock Bajo", "Sin Stock"])
         self.combo_filtro_stock.currentTextChanged.connect(self.cargar_datos)
         
@@ -416,11 +416,11 @@ class ModuloInventario(QWidget):
         filtros_layout.addWidget(self.combo_filtro_stock, 1)
         layout.addLayout(filtros_layout)
 
-        # Tabla
+        # Tabla: AHORA CON 8 COLUMNAS (Se agregó Proveedor)
         self.tabla = QTableWidget()
-        self.tabla.setColumnCount(7)
+        self.tabla.setColumnCount(8)
         self.tabla.setHorizontalHeaderLabels([
-            "Código", "Producto", "Categoría", "Stock Actual", "Stock Mínimo", "Estado", "Acciones"
+            "Código", "Producto", "Categoría", "Proveedor", "Stock Actual", "Stock Mínimo", "Estado", "Acciones"
         ])
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tabla.verticalHeader().hide()
@@ -456,6 +456,7 @@ class ModuloInventario(QWidget):
         conn = database.crear_conexion()
         cursor = conn.cursor()
         
+        # QUERY MODIFICADA: Se añade "OR p.proveedor LIKE ?"
         query = """
             SELECT 
                 p.codigo, 
@@ -468,11 +469,12 @@ class ModuloInventario(QWidget):
             FROM productos p
             LEFT JOIN categorias c ON p.id_categoria = c.id
             LEFT JOIN movimientos m ON p.id = m.id_producto
-            WHERE (p.codigo LIKE ? OR p.nombre LIKE ? OR categoria LIKE ?)
+            WHERE (p.codigo LIKE ? OR p.nombre LIKE ? OR categoria LIKE ? OR p.proveedor LIKE ?)
             GROUP BY p.id
         """
         
-        cursor.execute(query, (f'%{busqueda}%', f'%{busqueda}%', f'%{busqueda}%'))
+        # Pasamos el parámetro 4 veces (código, nombre, categoría, proveedor)
+        cursor.execute(query, (f'%{busqueda}%', f'%{busqueda}%', f'%{busqueda}%', f'%{busqueda}%'))
         todos = cursor.fetchall()
         
         # Lógica de filtrado por niveles de stock
@@ -495,16 +497,18 @@ class ModuloInventario(QWidget):
             
             # Definir estado y colores
             if stock_actual > 10:
-                estado, color, texto_color = "Normal", "#198754", "white" # Verde
+                estado, color, texto_color = "Normal", "#198754", "white" 
             elif 0 < stock_actual <= 10:
-                estado, color, texto_color = "Stock Bajo", "#ffc107", "black" # Amarillo
+                estado, color, texto_color = "Stock Bajo", "#ffc107", "black" 
             else:
-                estado, color, texto_color = "Sin Stock", "#dc3545", "white" # Rojo
+                estado, color, texto_color = "Sin Stock", "#dc3545", "white" 
 
+            # Lista de items actualizada con Proveedor en la columna 3 (índice 3)
             items = [
-                QTableWidgetItem(str(fila[0])),
-                QTableWidgetItem(str(fila[1])),
-                QTableWidgetItem(str(fila[2])),
+                QTableWidgetItem(str(fila[0])), # Código
+                QTableWidgetItem(str(fila[1])), # Producto
+                QTableWidgetItem(str(fila[2])), # Categoría
+                QTableWidgetItem(str(fila[5] if fila[5] else "Sin Proveedor")), # Proveedor
                 QTableWidgetItem(str(stock_actual)),
                 QTableWidgetItem(str(stock_minimo)),
                 QTableWidgetItem(estado)
@@ -516,7 +520,7 @@ class ModuloInventario(QWidget):
                 item.setForeground(QColor(texto_color))
                 self.tabla.setItem(idx, col, item)
 
-            # Botones
+            # Botones: Ahora en la columna 7
             btns_widget = QWidget()
             btns_layout = QHBoxLayout(btns_widget)
             btns_layout.setContentsMargins(0,0,0,0)
@@ -531,7 +535,7 @@ class ModuloInventario(QWidget):
             
             btns_layout.addWidget(btn_ver)
             btns_layout.addWidget(btn_del)
-            self.tabla.setCellWidget(idx, 6, btns_widget)
+            self.tabla.setCellWidget(idx, 7, btns_widget)
 
         conn.close()
         self.lbl_pagina.setText(f"Página {self.pagina_actual + 1}")
@@ -541,18 +545,6 @@ class ModuloInventario(QWidget):
         # d[0]=id, d[1]=cod, d[2]=nom, d[3]=cat, d[4]=prov
         ventana.mod_ver_prod.mostrar_datos(d[0], d[1], d[2], d[3], d[4])
         ventana.paginas.setCurrentWidget(ventana.mod_ver_prod)
-
-    def abrir_detalle(self, datos):
-        # datos debe ser una tupla: (codigo, nombre, categoria, proveedor)
-        ventana = self.window()
-        ventana.mod_ver_prod.mostrar_datos(datos)
-        ventana.paginas.setCurrentWidget(ventana.mod_ver_prod)
-
-    def ver_detalle_producto(self, nombre):
-        # Accedemos al padre (VentanaPrincipal) para cambiar la página
-        ventana_principal = self.window() 
-        ventana_principal.mod_ver_prod.set_producto(nombre)
-        ventana_principal.paginas.setCurrentWidget(ventana_principal.mod_ver_prod)
 
     def eliminar_producto(self, id_p):
         rta = QMessageBox.question(self, "Eliminar", "¿Eliminar producto y sus movimientos?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
@@ -1303,7 +1295,7 @@ class VentanaPrincipal(QMainWindow):
         # Usamos QVBoxLayout para el menú
         layout_sidebar = QVBoxLayout(self.sidebar)
         layout_sidebar.setContentsMargins(10, 20, 10, 20)
-        layout_sidebar.setSpacing(5) # <--- Aquí controlamos que estén más juntos
+        layout_sidebar.setSpacing(5) 
 
         # Título del Menú
         lbl_menu = QLabel("MENU PRINCIPAL")
